@@ -31,6 +31,7 @@ layout (location = 2) in mat4 aOffset;
 
 
 out vec4 mycolour;
+out vec2 mytexCoord;
 
 uniform mat4 model;
 uniform mat4 view;
@@ -43,16 +44,22 @@ void main()
 
     vec3 ndc = gl_Position.xyz / gl_Position.w;
     mycolour = vec4(1.0,1.0,1.0,1.0);
+    mytexCoord = aTexCoord;
 }
 )";
 
 constexpr auto fragmentShaderSource = R"(
 #version 430 core
+
 out vec4 FragColor;
 in vec4 mycolour;
+in vec2 mytexCoord;
+
+uniform sampler2DArray ourTexture;
+
 void main()
 {
-    FragColor = vec4(mycolour);
+    FragColor = texture(ourTexture, vec3(mytexCoord,1));
 } )";
 
 void APIENTRY glDebugOutput(GLenum source, GLenum type, unsigned int id,
@@ -71,7 +78,7 @@ Font loadFont(std::string filename) {
   stbi_set_flip_vertically_on_load(
     true); // we need to flip image since opengl has 0,0 in lower left bottom as
            // all proper coordinate systems
-  int width{0}, height{0}, nrChannels{0};
+  int width{0}, height{0}, nrChannels{0}, layerCount{1};
   int tiles{26}; // 26 chars in font
   auto font =
     stbi_load(filename.c_str(), &width, &height, &nrChannels, STBI_rgb_alpha);
@@ -94,8 +101,8 @@ Font loadFont(std::string filename) {
     */
 
     glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
-    glTexStorage3D(GL_TEXTURE_2D_ARRAY, 1, GL_RGBA8, width / tiles,
-                   height / tiles, tiles);
+    glTexStorage3D(GL_TEXTURE_2D_ARRAY, 1, GL_RGBA8, FONT_WIDTH, FONT_HEIGHT,
+                   layerCount);
 
     int params[] = {0, 0, 0, 0, 0, 0, 0};
     glGetTexParameteriv(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_IMMUTABLE_FORMAT,
@@ -104,14 +111,11 @@ Font loadFont(std::string filename) {
     std::cout << "param = " << std::hex << params[0] << std::endl;
 
     int mipLevel{0}, xOffset{0}, yOffset{0};
-    for (int x = 0; x < 26; x++) {
-      int zOffset{
-        x * 26 +
-        0}; // char index * number of chars + rows but we only have one row so..
-      glTexSubImage3D(GL_TEXTURE_2D_ARRAY, mipLevel, xOffset, yOffset, zOffset,
-                      FONT_WIDTH, FONT_HEIGHT, 1, GL_RGBA8, GL_UNSIGNED_BYTE,
-                      font + (x * FONT_HEIGHT * FONT_WIDTH) * nrChannels);
-    }
+    int zOffset{0};
+    glTexSubImage3D(GL_TEXTURE_2D_ARRAY, mipLevel, xOffset, yOffset, zOffset,
+                    FONT_WIDTH, FONT_HEIGHT, layerCount, GL_RGBA,
+                    GL_UNSIGNED_BYTE, font);
+
     stbi_image_free(font);
   }
 
@@ -239,8 +243,6 @@ int main() {
   [[maybe_unused]] float deltaTime =
     0.0f;                 // Time between current frame and last frame
   float lastFrame = 0.0f; // Time of last frame
-
-  srand(time(NULL));
 
   if (!glfwInit()) {
     // Initialization failed
@@ -376,6 +378,8 @@ int main() {
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT |
             GL_STENCIL_BUFFER_BIT); // also clear the depth buffer now!  |
                                     // GL_DEPTH_BUFFER_BIT
+    // bind texture
+    glBindTexture(GL_TEXTURE_2D_ARRAY, font.texture);
     // 2. use our shader program when we want to render an object
     glUseProgram(shaderProgram);
 
