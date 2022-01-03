@@ -44,7 +44,7 @@ void main()
 
     vec3 ndc = gl_Position.xyz / gl_Position.w;
     mycolour = vec4(1.0,1.0,1.0,1.0);
-    mytexCoord = aTexCoord;
+    mytexCoord = vec2(aTexCoord.x, aTexCoord.y);
 }
 )";
 
@@ -59,7 +59,7 @@ uniform sampler2DArray ourTexture;
 
 void main()
 {
-    FragColor = texture(ourTexture, vec3(mytexCoord,1));
+    FragColor = texture(ourTexture, vec3(mytexCoord.st,25));
 } )";
 
 void APIENTRY glDebugOutput(GLenum source, GLenum type, unsigned int id,
@@ -75,10 +75,10 @@ struct Font {
 
 Font loadFont(std::string filename) {
   // Font retVal;
-  stbi_set_flip_vertically_on_load(
-    true); // we need to flip image since opengl has 0,0 in lower left bottom as
-           // all proper coordinate systems
-  int width{0}, height{0}, nrChannels{0}, layerCount{1};
+  stbi_set_flip_vertically_on_load(true);
+  // we need to flip image since opengl has 0,0 in lower left bottom as
+  // all proper coordinate systems
+  int width{0}, height{0}, nrChannels{0}, layerCount{26};
   int tiles{26}; // 26 chars in font
   auto font =
     stbi_load(filename.c_str(), &width, &height, &nrChannels, STBI_rgb_alpha);
@@ -87,35 +87,41 @@ Font loadFont(std::string filename) {
   if (font) {
     glGenTextures(1, &texture);
     glBindTexture(GL_TEXTURE_2D_ARRAY, texture);
-    /*
-        glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_S,
-       GL_CLAMP_TO_BORDER); glTexParameteri(GL_TEXTURE_2D_ARRAY,
-       GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
-        glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MIN_FILTER,
-                        GL_LINEAR_MIPMAP_LINEAR);
-        glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    */   /*
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, width, height, 0, GL_RGB,
-                     GL_UNSIGNED_BYTE, font);
-        glGenerateMipmap(GL_TEXTURE_2D);
-    */
+
+    glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
+    glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
+    glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MIN_FILTER,
+                    GL_LINEAR_MIPMAP_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 
     glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    //-----------------------------------------------------------------------
+    //  glTexStorage3D(GL_TEXTURE_2D_ARRAY, 1, GL_RGBA8, width, height,
+    //  layerCount);
+
     glTexStorage3D(GL_TEXTURE_2D_ARRAY, 1, GL_RGBA8, FONT_WIDTH, FONT_HEIGHT,
                    layerCount);
 
+    // tell opengl size of one row in whole image
+    glPixelStorei(GL_UNPACK_ROW_LENGTH, width);
     int params[] = {0, 0, 0, 0, 0, 0, 0};
     glGetTexParameteriv(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_IMMUTABLE_FORMAT,
                         params);
 
     std::cout << "param = " << std::hex << params[0] << std::endl;
 
-    int mipLevel{0}, xOffset{0}, yOffset{0};
-    int zOffset{0};
-    glTexSubImage3D(GL_TEXTURE_2D_ARRAY, mipLevel, xOffset, yOffset, zOffset,
-                    FONT_WIDTH, FONT_HEIGHT, layerCount, GL_RGBA,
-                    GL_UNSIGNED_BYTE, font);
+    int mipLevel{0}, xSkipPixelsPerRow{0}, yOffset{0};
+    int fontNumber{0};
+    for (fontNumber = 0; fontNumber < layerCount; fontNumber++) {
+      xSkipPixelsPerRow = fontNumber % layerCount * FONT_WIDTH;
+      yOffset = fontNumber / 4 * FONT_HEIGHT;
+      glPixelStorei(GL_UNPACK_SKIP_PIXELS, xSkipPixelsPerRow);
+      // glPixelStorei(GL_UNPACK_SKIP_ROWS, zOffset);
 
+      glTexSubImage3D(GL_TEXTURE_2D_ARRAY, mipLevel, 0, 0, fontNumber,
+                      FONT_WIDTH, FONT_HEIGHT, 1 /*layerCount*/, GL_RGBA,
+                      GL_UNSIGNED_BYTE, font);
+    }
     stbi_image_free(font);
   }
 
@@ -220,13 +226,13 @@ int main() {
   std::default_random_engine e1(r());
 
   // clang-format off
-  std::vector<float> star = {
-      -0.50f, -0.50f, 0.0f, 0.0f, 0.0f,
-       0.50f, -0.50f, 0.0f, 1.0f, 0.0f,
-       0.50f,  0.50f, 0.0f, 1.0f, 1.0f,
-      -0.50f, -0.50f, 0.0f, 0.0f, 0.0f,
-       0.50f,  0.50f, 0.0f, 1.0f, 1.0f,
-      -0.50f,  0.50f, 0.0f, 0.0f, 1.0f,
+  std::vector<float> star = {// first position (3) then texture coords (2)
+      -0.50f, -0.50f, 0.0f, 0.0f, 0.0f, // bottom left
+       0.50f, -0.50f, 0.0f, 1.0f, 0.0f, // bottom right
+       0.50f,  0.50f, 0.0f, 1.0f, 1.0f, // top right
+      -0.50f, -0.50f, 0.0f, 0.0f, 0.0f, // bottom left
+       0.50f,  0.50f, 0.0f, 1.0f, 1.0f, // top right
+      -0.50f,  0.50f, 0.0f, 0.0f, 1.0f, //top left
   };
   // clang-format on
 
@@ -378,11 +384,14 @@ int main() {
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT |
             GL_STENCIL_BUFFER_BIT); // also clear the depth buffer now!  |
                                     // GL_DEPTH_BUFFER_BIT
-    // bind texture
-    glBindTexture(GL_TEXTURE_2D_ARRAY, font.texture);
     // 2. use our shader program when we want to render an object
     glUseProgram(shaderProgram);
 
+    // bind texture
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D_ARRAY, font.texture);
+
+    glUniform1i(glGetUniformLocation(shaderProgram, "ourTexture"), 0);
     glfwGetWindowSize(window, &width, &height);
     glm::vec2 u_res(width, height);
     int resolution = glGetUniformLocation(shaderProgram, "u_resolution");
