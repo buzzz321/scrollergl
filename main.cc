@@ -208,7 +208,7 @@ std::vector<glm::vec3> generateFontOffsets(uint32_t amount) {
   std::vector<glm::vec3> retVal;
   //   {0, 300, 230}, {1600, 300, 230}
   for (float index = 0; index < (float)amount; ++index) {
-    glm::vec3 vertex((float)1600.0f, (float)300.0f, (float)230.0f);
+    glm::vec3 vertex((float)1600.0f + FONT_WIDTH, (float)300.0f, (float)230.0f);
 
     retVal.push_back(vertex);
   }
@@ -220,7 +220,7 @@ int main() {
   std::default_random_engine e1(r());
   std::vector<uint32_t> fontIndex;
   // clang-format off
-  std::vector<float> star = {// first position (3) then texture coords (2)
+  std::vector<float> quad = {// first position (3) then texture coords (2)
       -0.50f, -0.50f, 0.0f, 0.0f, 0.0f, // bottom left
        0.50f, -0.50f, 0.0f, 1.0f, 0.0f, // bottom right
        0.50f,  0.50f, 0.0f, 1.0f, 1.0f, // top right
@@ -232,20 +232,24 @@ int main() {
 
   for (size_t index = 0; index < MAX_FONTS_PER_LINE; index++) {
     // 27 is pos of space
-    auto fontNo = scroll_text[index] == ' ' ? 27 : scroll_text[index] - 'a';
-    fontIndex.push_back(fontNo);
+    std::cout << scroll_text[index];
+    if (scroll_text[index] != '\n') {
+      auto fontNo = scroll_text[index] == ' ' ? 27 : scroll_text[index] - 'a';
+      fontIndex.push_back(fontNo);
+    }
   }
-
+  std::cout << std::endl;
   std::vector<glm::vec3> fontOffsets = generateFontOffsets(MAX_FONTS_PER_LINE);
   //{{0, 300, 230}, {1600, 300, 230}}; // generateStarOffsets(100);
-  std::vector<glm::mat4> offsetMatrices;
+  std::vector<glm::mat4> offsetMatrices(fontOffsets.size());
 
-  for (const auto &vec : fontOffsets) {
-    glm::mat4 model = glm::mat4(1.0f);
-    model = glm::translate(model, vec);
-    offsetMatrices.push_back(model);
-  }
-
+  /*
+    for (const auto &vec : fontOffsets) {
+      glm::mat4 model = glm::mat4(1.0f);
+      model = glm::translate(model, vec);
+      offsetMatrices.push_back(model);
+    }
+  */
   [[maybe_unused]] float deltaTime =
     0.0f;                 // Time between current frame and last frame
   float lastFrame = 0.0f; // Time of last frame
@@ -313,7 +317,7 @@ int main() {
   // verticies
   glBindVertexArray(VAO);
   glBindBuffer(GL_ARRAY_BUFFER, VBO);
-  glBufferData(GL_ARRAY_BUFFER, star.size() * sizeof(float), &star[0],
+  glBufferData(GL_ARRAY_BUFFER, quad.size() * sizeof(float), &quad[0],
                GL_STATIC_DRAW);
   glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void *)0);
   glEnableVertexAttribArray(0);
@@ -375,8 +379,11 @@ int main() {
 
   float dist = 0;
   std::cout << "zFar=" << zFar + 10.0f << std::endl;
+  size_t startup_counter{0};
+  size_t fonts_in_flight{0};
+
   while (!glfwWindowShouldClose(window)) {
-    int width, height;
+    int win_width, win_height;
 
     float currentFrame = glfwGetTime();
     deltaTime = currentFrame - lastFrame;
@@ -391,18 +398,19 @@ int main() {
     // 2. use our shader program when we want to render an object
     glUseProgram(shaderProgram);
 
-    // bind texture
+    // bind texture and put in all font indexes ( eg scroll text ) into shader
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D_ARRAY, font.texture);
-
     glUniform1i(glGetUniformLocation(shaderProgram, "ourTexture"), 0);
-    glfwGetWindowSize(window, &width, &height);
-    glm::vec2 u_res(width, height);
-    int resolution = glGetUniformLocation(shaderProgram, "u_resolution");
-    glUniformMatrix4fv(resolution, 1, GL_FALSE, glm::value_ptr(u_res));
 
     int fontNo = glGetUniformLocation(shaderProgram, "u_font");
     glUniform1iv(fontNo, fontIndex.size(), (const GLint *)fontIndex.data());
+
+    // push current window size into shader.
+    glfwGetWindowSize(window, &win_width, &win_height);
+    glm::vec2 u_res(win_width, win_height);
+    int resolution = glGetUniformLocation(shaderProgram, "u_resolution");
+    glUniformMatrix4fv(resolution, 1, GL_FALSE, glm::value_ptr(u_res));
 
     int modelprj = glGetUniformLocation(shaderProgram, "projection");
     glUniformMatrix4fv(modelprj, 1, GL_FALSE, glm::value_ptr(projection));
@@ -411,15 +419,31 @@ int main() {
 
     glBindVertexArray(VAO);
 
-    glm::mat4 starModel = glm::mat4(1.0f);
-    starModel = glm::translate(starModel, glm::vec3(0, 0, dist));
-
+    // we dont move this model we just move the insances..
+    glm::mat4 fontModel = glm::mat4(1.0f);
+    fontModel = glm::translate(fontModel, glm::vec3(0, 0, dist));
     int modelLoc = glGetUniformLocation(shaderProgram, "model");
-    glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(starModel));
+    glUniformMatrix4fv(modelLoc, 1, GL_FALSE, glm::value_ptr(fontModel));
 
-    size_t index{0};
+    if (startup_counter < win_width) {
+      if (0 == (startup_counter % (FONT_WIDTH - 20))) {
+        if (fonts_in_flight < MAX_FONTS_PER_LINE) {
+          fonts_in_flight++;
+          std::cout << "startup_counter " << std::dec << startup_counter
+                    << std::endl;
+          std::cout << "fonts in flight " << fonts_in_flight << std::endl;
+        }
+      }
+      startup_counter++;
+    }
+
+    size_t instance_index{0};
     for (auto &vec : fontOffsets) {
-      vec.x -= 1.0f;
+      if (instance_index < fonts_in_flight) {
+        vec.x -= 1.5f;
+      } else {
+        vec.x = vec.x;
+      }
 
       if (vec.x < -FONT_WIDTH) {
         vec.x = 1600.0 + FONT_WIDTH;
@@ -428,8 +452,9 @@ int main() {
       glm::mat4 model = glm::mat4(1.0f);
       model = glm::translate(model, glm::vec3(vec.x, vec.y, vec.z));
       model = glm::scale(model, glm::vec3(50.0, 50.0, 1.0));
-      offsetMatrices[index] = model;
-      index++;
+      offsetMatrices[instance_index] = model;
+      // std::cout << "index " << index << std::endl;
+      instance_index++;
 
       // std::cout << glm::to_string(model) << std::endl;
     }
