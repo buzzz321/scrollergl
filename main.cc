@@ -13,7 +13,6 @@
 #include <glm/gtc/type_ptr.hpp>
 #include <glm/gtx/string_cast.hpp>
 #include <iostream>
-#include <mikmod.h>
 #include <optional>
 #include <random>
 #include <vector>
@@ -80,8 +79,6 @@ void APIENTRY glDebugOutput(GLenum source, GLenum type, unsigned int id,
                             GLenum severity, [[maybe_unused]] GLsizei length,
                             const char *message,
                             [[maybe_unused]] const void *userParam);
-MODULE *initMikMod();
-
 struct Font {
   int width{0};
   int height{0};
@@ -382,14 +379,6 @@ int main() {
   float dist = 0;
   std::cout << "zFar=" << zFar + 10.0f << std::endl;
 
-  auto module = initMikMod();
-  if (module) {
-    /* start module */
-
-    Player_Start(module);
-    Player_SetVolume(32);
-  }
-
   size_t startup_counter{0};
   size_t fonts_in_flight{0};
   size_t next_free_font_index{0};
@@ -402,10 +391,6 @@ int main() {
     lastFrame = currentFrame;
 
     processInput(window);
-
-    if (Player_Active()) {
-      MikMod_Update();
-    }
 
     glClearColor(0.2f, 0.3f, 0.3f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT |
@@ -503,10 +488,6 @@ int main() {
     glfwPollEvents();
   }
 
-  Player_Stop();
-  Player_Free(module);
-  MikMod_Exit();
-
   glDeleteVertexArrays(1, &VAO);
   glDeleteBuffers(1, &VBO);
 
@@ -595,24 +576,4 @@ void APIENTRY glDebugOutput(GLenum source, GLenum type, unsigned int id,
   }
   std::cout << std::endl;
   std::cout << std::endl;
-}
-
-MODULE *initMikMod() {
-  MODULE *module{nullptr};
-
-  /* register all the drivers */
-  MikMod_RegisterAllDrivers();
-
-  /* register all the module loaders */
-  MikMod_RegisterAllLoaders();
-
-  /* initialize the library */
-  md_mode |= DMODE_SOFT_MUSIC;
-  if (MikMod_Init("")) {
-    fprintf(stderr, "Could not initialize sound, reason: %s\n",
-            MikMod_strerror(MikMod_errno));
-    return nullptr;
-  }
-  module = Player_Load("resonance2.mod", 64, 0);
-  return module;
 }
