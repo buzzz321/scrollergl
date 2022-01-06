@@ -20,7 +20,7 @@ constexpr int32_t SCREEN_WIDTH = 1600;
 constexpr int32_t SCREEN_HEIGHT = 1100;
 constexpr int32_t FONT_WIDTH = 54;
 constexpr int32_t FONT_HEIGHT = 71;
-constexpr int32_t MAX_FONTS_PER_LINE = 48;
+constexpr int32_t MAX_FONTS_PER_LINE = 48 - 14;
 
 constexpr float fov = glm::radians(90.0f);
 const float zFar = (SCREEN_WIDTH / 2.0) / tanf64(fov / 2.0f);
@@ -70,7 +70,7 @@ void main()
     FragColor = myoutput;
 } )";
 
-constexpr auto scroll_text = R"(
+const std::string scroll_text = R"(
 just some random babbling to show on screen since we dont have dots or commas typing and reading will be a challenge
 )";
 
@@ -230,7 +230,7 @@ int main() {
   };
   // clang-format on
 
-  for (size_t index = 0; index < MAX_FONTS_PER_LINE; index++) {
+  for (size_t index = 0; index < scroll_text.size(); index++) {
     // 27 is pos of space
     std::cout << scroll_text[index];
     if (scroll_text[index] != '\n') {
