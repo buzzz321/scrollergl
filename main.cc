@@ -13,6 +13,8 @@
 #include <glm/gtc/type_ptr.hpp>
 #include <glm/gtx/string_cast.hpp>
 #include <iostream>
+#include <mikmod.h>
+#include <optional>
 #include <random>
 #include <vector>
 
@@ -70,14 +72,15 @@ void main()
     FragColor = myoutput;
 } )";
 
-const std::string scroll_text = R"(
-just some random babbling to show on screen since we dont have dots or commas typing and reading will be a challenge
+const std::string scroll_text =
+  R"(just some random babbling to show on screen since we dont have dots or commas typing and reading will be a challenge 
 )";
 
 void APIENTRY glDebugOutput(GLenum source, GLenum type, unsigned int id,
                             GLenum severity, [[maybe_unused]] GLsizei length,
                             const char *message,
                             [[maybe_unused]] const void *userParam);
+MODULE *initMikMod();
 
 struct Font {
   int width{0};
@@ -215,6 +218,12 @@ std::vector<glm::vec3> generateFontOffsets(uint32_t amount) {
   return retVal;
 }
 
+std::optional<uint32_t> getFontNumber(const std::string &text, size_t pos) {
+  if (text[pos] != '\n') {
+    return scroll_text[pos] == ' ' ? 27 : scroll_text[pos] - 'a';
+  }
+  return std::nullopt;
+}
 int main() {
   std::random_device r;
   std::default_random_engine e1(r());
@@ -233,23 +242,16 @@ int main() {
   for (size_t index = 0; index < scroll_text.size(); index++) {
     // 27 is pos of space
     std::cout << scroll_text[index];
-    if (scroll_text[index] != '\n') {
-      auto fontNo = scroll_text[index] == ' ' ? 27 : scroll_text[index] - 'a';
-      fontIndex.push_back(fontNo);
-    }
+
+    auto fontNo = getFontNumber(scroll_text, index);
+    if (fontNo.has_value())
+      fontIndex.push_back(fontNo.value());
   }
   std::cout << std::endl;
   std::vector<glm::vec3> fontOffsets = generateFontOffsets(MAX_FONTS_PER_LINE);
   //{{0, 300, 230}, {1600, 300, 230}}; // generateStarOffsets(100);
   std::vector<glm::mat4> offsetMatrices(fontOffsets.size());
 
-  /*
-    for (const auto &vec : fontOffsets) {
-      glm::mat4 model = glm::mat4(1.0f);
-      model = glm::translate(model, vec);
-      offsetMatrices.push_back(model);
-    }
-  */
   [[maybe_unused]] float deltaTime =
     0.0f;                 // Time between current frame and last frame
   float lastFrame = 0.0f; // Time of last frame
@@ -379,8 +381,18 @@ int main() {
 
   float dist = 0;
   std::cout << "zFar=" << zFar + 10.0f << std::endl;
+
+  auto module = initMikMod();
+  if (module) {
+    /* start module */
+
+    Player_Start(module);
+    Player_SetVolume(32);
+  }
+
   size_t startup_counter{0};
   size_t fonts_in_flight{0};
+  size_t next_free_font_index{0};
 
   while (!glfwWindowShouldClose(window)) {
     int win_width, win_height;
@@ -390,6 +402,10 @@ int main() {
     lastFrame = currentFrame;
 
     processInput(window);
+
+    if (Player_Active()) {
+      MikMod_Update();
+    }
 
     glClearColor(0.2f, 0.3f, 0.3f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT |
@@ -429,9 +445,12 @@ int main() {
       if (0 == (startup_counter % (FONT_WIDTH - 20))) {
         if (fonts_in_flight < MAX_FONTS_PER_LINE) {
           fonts_in_flight++;
-          std::cout << "startup_counter " << std::dec << startup_counter
+          next_free_font_index++;
+          /*        std::cout << "startup_counter " << std::dec <<
+          startup_counter
                     << std::endl;
           std::cout << "fonts in flight " << fonts_in_flight << std::endl;
+          */
         }
       }
       startup_counter++;
@@ -447,6 +466,13 @@ int main() {
 
       if (vec.x < -FONT_WIDTH) {
         vec.x = 1600.0 + FONT_WIDTH;
+        auto new_char = getFontNumber(scroll_text, next_free_font_index);
+        if (new_char.has_value())
+          fontIndex.at(instance_index) = new_char.value();
+        next_free_font_index++;
+        if (next_free_font_index >= scroll_text.size()) {
+          next_free_font_index = 0;
+        }
       }
 
       glm::mat4 model = glm::mat4(1.0f);
@@ -476,6 +502,10 @@ int main() {
     //  Keep running
     glfwPollEvents();
   }
+
+  Player_Stop();
+  Player_Free(module);
+  MikMod_Exit();
 
   glDeleteVertexArrays(1, &VAO);
   glDeleteBuffers(1, &VBO);
@@ -565,4 +595,24 @@ void APIENTRY glDebugOutput(GLenum source, GLenum type, unsigned int id,
   }
   std::cout << std::endl;
   std::cout << std::endl;
+}
+
+MODULE *initMikMod() {
+  MODULE *module{nullptr};
+
+  /* register all the drivers */
+  MikMod_RegisterAllDrivers();
+
+  /* register all the module loaders */
+  MikMod_RegisterAllLoaders();
+
+  /* initialize the library */
+  md_mode |= DMODE_SOFT_MUSIC;
+  if (MikMod_Init("")) {
+    fprintf(stderr, "Could not initialize sound, reason: %s\n",
+            MikMod_strerror(MikMod_errno));
+    return nullptr;
+  }
+  module = Player_Load("resonance2.mod", 64, 0);
+  return module;
 }
